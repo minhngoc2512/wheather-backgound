@@ -230,6 +230,18 @@ echo "/etc/xdg/$PKG/config.toml" > "$BUILD/DEBIAN/conffiles"
 cat > "$BUILD/DEBIAN/postinst" <<'EOF'
 #!/bin/sh
 set -e
+if [ "$1" = configure ] && [ -n "${2:-}" ]; then
+    # Nang cap: unit file da doi tren dia nhung systemd --user van giu ban cu
+    # trong bo nho. Khong the reload ho tu postinst (chay bang root, con unit
+    # thi thuoc tung phien user), nen phai nhac.
+    cat <<'MSG'
+
+weather-background upgraded. If the timer is already enabled, refresh systemd:
+    systemctl --user daemon-reload
+
+MSG
+    exit 0
+fi
 if [ "$1" = configure ]; then
     cat <<'MSG'
 
