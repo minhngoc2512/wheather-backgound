@@ -70,6 +70,19 @@ def find_config(explicit: str | None) -> Path | None:
     return None
 
 
+def writable_wallpapers(preferred: Path) -> Path:
+    """Thu muc de --generate-bases ghi vao.
+
+    default_wallpapers() tra ve thu muc dau tien CO SAN anh, ma sau khi cai
+    goi thi do luon la /usr/share/... thuoc root. Sinh anh phai ghi duoc, nen
+    lui ve thu muc XDG cua user khi cho uu tien khong ghi duoc.
+    """
+    probe = preferred if preferred.is_dir() else preferred.parent
+    if probe.is_dir() and os.access(probe, os.W_OK):
+        return preferred
+    return WALLPAPER_CANDIDATES[0]
+
+
 def default_wallpapers() -> Path:
     """Thu muc anh nen khi config khong chi dinh."""
     for cand in WALLPAPER_CANDIDATES:
@@ -544,8 +557,11 @@ def main() -> int:
     size = cfg.resolution or (2560, 1440)
 
     if args.generate_bases:
-        print(f"Tao anh gradient {size[0]}x{size[1]} trong {cfg.wallpapers}:")
-        generate_bases(cfg.wallpapers, size)
+        target = writable_wallpapers(cfg.wallpapers)
+        if target != cfg.wallpapers:
+            print(f"{cfg.wallpapers} khong ghi duoc, dung {target} thay the.")
+        print(f"Tao anh nen {size[0]}x{size[1]} trong {target}:")
+        generate_bases(target, size)
         return 0
 
     CACHE.mkdir(parents=True, exist_ok=True)
