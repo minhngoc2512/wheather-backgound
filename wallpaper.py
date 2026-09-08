@@ -357,8 +357,8 @@ def find_base(folder: Path, phase: str, season: str | None = None) -> Path:
                 if cand.exists():
                     return cand
     raise FileNotFoundError(
-        f"Khong tim thay anh nen '{phase}.*' trong {folder}. "
-        "Chay voi --generate-bases de tao bo anh mac dinh."
+        f"No wallpaper found for '{phase}.*' in {folder}. "
+        "Run with --generate-bases to create the default set."
     )
 
 
@@ -582,7 +582,7 @@ def generate_bases(folder: Path, size: tuple[int, int]) -> None:
     for phase in PHASES:
         out = folder / f"{phase}.png"
         make_scene(phase, size).save(out)
-        print(f"  tao {out}")
+        print(f"  created {out}")
 
 
 # --------------------------------------------------------------------------
@@ -649,7 +649,7 @@ def set_wallpaper(path: Path, setter: str) -> None:
         subprocess.run(["feh", "--bg-fill", str(path)], check=False)
 
     elif setter == "none":
-        print(f"Khong co setter phu hop. Anh da tao tai: {path}")
+        print(f"No suitable setter found. Image written to: {path}")
 
 
 # --------------------------------------------------------------------------
@@ -657,20 +657,20 @@ def set_wallpaper(path: Path, setter: str) -> None:
 # --------------------------------------------------------------------------
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Dynamic wallpaper theo mat troi + thoi tiet")
-    ap.add_argument("-c", "--config", help="duong dan config.toml (mac dinh: tu dong do)")
-    ap.add_argument("--weather", help="ep buoc nhom thoi tiet (clear/cloudy/overcast/fog/rain/snow/storm)")
-    ap.add_argument("--phase", choices=PHASES, help="ep buoc khung thoi gian")
-    ap.add_argument("--season", choices=(*SEASONS, "off"), help="ep buoc mua")
-    ap.add_argument("--offline", action="store_true", help="khong goi API, dung cache")
-    ap.add_argument("--dry-run", action="store_true", help="tinh toan va tao anh nhung khong doi hinh nen")
-    ap.add_argument("--generate-bases", action="store_true", help="tao 4 anh gradient mac dinh roi thoat")
+    ap = argparse.ArgumentParser(description="Dynamic wallpaper driven by sun position and weather")
+    ap.add_argument("-c", "--config", help="path to config.toml (default: auto-detect)")
+    ap.add_argument("--weather", help="force a weather group (clear/cloudy/overcast/fog/rain/snow/storm)")
+    ap.add_argument("--phase", choices=PHASES, help="force a time of day")
+    ap.add_argument("--season", choices=(*SEASONS, "off"), help="force a season")
+    ap.add_argument("--offline", action="store_true", help="skip the API, use the cached value")
+    ap.add_argument("--dry-run", action="store_true", help="compute and render, but do not set the wallpaper")
+    ap.add_argument("--generate-bases", action="store_true", help="create the default wallpaper set and exit")
     args = ap.parse_args()
 
     cfg_path = find_config(args.config)
     if cfg_path is None:
         looked = args.config or "\n  ".join(str(c) for c in CONFIG_CANDIDATES)
-        print(f"Khong thay config. Da tim tai:\n  {looked}", file=sys.stderr)
+        print(f"No config found. Looked in:\n  {looked}", file=sys.stderr)
         return 1
     cfg = load_config(cfg_path)
 
@@ -679,8 +679,8 @@ def main() -> int:
     if args.generate_bases:
         target = writable_wallpapers(cfg.wallpapers)
         if target != cfg.wallpapers:
-            print(f"{cfg.wallpapers} khong ghi duoc, dung {target} thay the.")
-        print(f"Tao anh nen {size[0]}x{size[1]} trong {target}:")
+            print(f"{cfg.wallpapers} is not writable, using {target} instead.")
+        print(f"Creating {size[0]}x{size[1]} wallpapers in {target}:")
         generate_bases(target, size)
         return 0
 
@@ -698,7 +698,7 @@ def main() -> int:
         try:
             group = fetch_weather(cfg.latitude, cfg.longitude)
         except (urllib.error.URLError, TimeoutError, KeyError, ValueError) as exc:
-            print(f"Khong lay duoc thoi tiet ({exc}); dung gia tri cu.", file=sys.stderr)
+            print(f"Could not fetch weather ({exc}); using the previous value.", file=sys.stderr)
             group = cached_weather()
 
     if args.season:
@@ -728,7 +728,7 @@ def main() -> int:
     ):
         out = Path(prev.get("output", ""))
         if out.exists():
-            print(f"Khong doi: {phase} / {group}")
+            print(f"Unchanged: {phase} / {group}")
             return 0
 
     img = Image.open(base)

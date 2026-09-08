@@ -1,19 +1,19 @@
-# Toa do dung de tinh goc mat troi va lay thoi tiet.
-# Mac dinh: Ha Noi
+# Coordinates used for solar position and the weather lookup.
+# Default: Hanoi
 [location]
 latitude  = 21.0278
 longitude = 105.8342
 
 [display]
-# Thu muc chua 4 anh nen goc: night / dawn / day / dusk (.jpg .png .webp)
+# Folder holding the base wallpapers, one per time of day (.jpg .png .webp)
 wallpapers = "~/Projects/weather_background/wallpapers"
 
 # auto | gnome | kde | swaybg | feh | none
 setter = "auto"
 
-# Do phan giai man hinh. Bo trong de giu nguyen kich thuoc anh goc.
+# Screen resolution. Leave unset to keep the source image size.
 resolution = "2560x1440"
 
 [weather]
-# false = bo qua thoi tiet, chi doi anh theo mat troi
+# false = ignore weather, follow the sun only
 enabled = true

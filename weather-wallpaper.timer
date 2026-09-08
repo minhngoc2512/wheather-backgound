@@ -1,10 +1,10 @@
 [Unit]
-Description=Chay weather-wallpaper moi 15 phut
+Description=Run weather-wallpaper every 15 minutes
 
 [Timer]
 OnStartupSec=30s
 OnUnitActiveSec=15min
-# Chay bu neu may vua thuc day tu suspend
+# Catch up if the machine just resumed from suspend
 Persistent=true
 AccuracySec=1min
 

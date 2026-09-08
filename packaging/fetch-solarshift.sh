@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Fetch the SolarShift wallpapers (32 PNG, ~570 MB) into build/solarshift-src.
+# Source: https://github.com/TemujinCalidius/SolarShift (MIT)
 set -uo pipefail
 BASE="https://raw.githubusercontent.com/TemujinCalidius/SolarShift/main/images"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,5 +20,5 @@ for s in $SEASONS; do
     fi
   done
 done
-echo "HOAN TAT, that bai: $fail"
+echo "DONE, failures: $fail"
 du -sh "$OUT"

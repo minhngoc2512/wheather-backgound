@@ -1,10 +1,10 @@
 [Unit]
-Description=Cap nhat hinh nen theo goc mat troi va thoi tiet
+Description=Update wallpaper from sun position and weather
 After=graphical-session.target
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 ExecStart=%h/Projects/weather_background/.venv/bin/python %h/Projects/weather_background/wallpaper.py
-# Can thiet de gsettings/qdbus noi duoc toi phien desktop dang chay
+# Needed so gsettings/qdbus can reach the running desktop session
 Environment=DISPLAY=:0

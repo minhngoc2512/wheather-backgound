@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Chuyen anh SolarShift (5504x3072 PNG, ~18MB/anh) sang JPEG dong goi duoc.
+"""Convert the SolarShift images (5504x3072 PNG, ~18MB each) to packageable JPEG.
 
-Nguon: https://github.com/TemujinCalidius/SolarShift  (MIT, (c) 2026 Samuel Lison)
+Source: https://github.com/TemujinCalidius/SolarShift  (MIT, (c) 2026 Samuel Lison)
 """
 
 import sys
@@ -17,8 +17,8 @@ TIMES = ("dawn", "morning", "midday", "afternoon",
 
 
 def fit(img: Image.Image, size: tuple[int, int]) -> Image.Image:
-    """Cat giua ve dung ti le roi thu nho. Anh goc 1.79 vs 16:9 = 1.78 nen
-    chi mat khoang 43px chieu ngang."""
+    """Centre-crop to the target ratio, then downscale. The source is 1.79 vs
+    16:9 = 1.78, so only about 43px of width is lost."""
     tw, th = size
     w, h = img.size
     if w / h > tw / th:
@@ -39,13 +39,13 @@ def main() -> int:
         for name in TIMES:
             f = src / season / f"{name}.png"
             if not f.exists():
-                print(f"  thieu {f}", file=sys.stderr)
+                print(f"  missing {f}", file=sys.stderr)
                 continue
             out = out_dir / f"{name}.jpg"
             fit(Image.open(f).convert("RGB"), TARGET).save(
                 out, "JPEG", quality=QUALITY, subsampling=0, optimize=True)
             total += out.stat().st_size
-    print(f"  tong {total/1048576:.1f} MB")
+    print(f"  total {total/1048576:.1f} MB")
     return 0
 
 

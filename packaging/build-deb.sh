@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Dong goi weather-background thanh .deb (Architecture: all).
-# Chay:  ./packaging/build-deb.sh  [version]
+# Build weather-background into a .deb (Architecture: all).
+# Usage:  ./packaging/build-deb.sh  [version]
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,11 +8,11 @@ VERSION="${1:-1.0.0}"
 PKG="weather-background"
 BUILD="$ROOT/build/${PKG}_${VERSION}"
 
-# astral 3.2 duoc nhung vao goi vi python3-astral cua Ubuntu 22.04 la ban 1.6.1
-# voi API hoan toan khac (khong co Observer).
+# astral 3.2 is vendored because Ubuntu 22.04 ships python3-astral 1.6.1,
+# which has a completely different API (no Observer).
 ASTRAL_SRC="${ASTRAL_SRC:-$(ls -d "$ROOT"/.venv/lib/python3.*/site-packages/astral 2>/dev/null | head -1)}"
 if [ -z "$ASTRAL_SRC" ] || [ ! -d "$ASTRAL_SRC" ]; then
-    echo "Khong tim thay astral de nhung. Chay ./install.sh truoc, hoac dat ASTRAL_SRC=..." >&2
+    echo "No astral to vendor. Run ./install.sh first, or set ASTRAL_SRC=..." >&2
     exit 1
 fi
 ASTRAL_VER="$("$ROOT/.venv/bin/python" -c 'import astral;print(astral.__version__)' 2>/dev/null || echo 3.2)"
@@ -66,13 +66,13 @@ Categories=Settings;DesktopSettings;
 Keywords=wallpaper;background;weather;
 EOF
 
-# 4 anh nen mac dinh. Chuyen PNG -> JPEG q92 4:4:4 cho goi: PNG cua anh co
-# nhieu dither nen len toi 3MB/anh, JPEG q92 nho gan 5 lan ma mat thuong khong
-# phan biet duoc. Giu 4:4:4 vi lay mau con chroma lam ban bau troi gradient.
-# wallpapers/ khong nam trong git (tai tao duoc tu code), nen sinh lai neu thieu.
-# Truoc day khoi nay im lang bo qua -> goi ra doi khong co anh nen nao.
+# Default wallpapers. PNG -> JPEG q92 4:4:4 for the package: the dithered PNGs
+# reach 3MB each, while JPEG q92 is nearly 5x smaller with no visible loss.
+# Keep 4:4:4 - chroma subsampling smears the sky gradients.
+# wallpapers/ is not in git (it is reproducible from code), so regenerate it
+# when missing. This block used to skip silently -> a package with no wallpapers.
 if ! ls "$ROOT"/wallpapers/*.png >/dev/null 2>&1; then
-    echo "==> Chua co anh nen, sinh lai"
+    echo "==> No wallpapers yet, regenerating"
     "$ROOT/.venv/bin/python" "$ROOT/wallpaper.py" --generate-bases -c "$ROOT/config.toml" >/dev/null
 fi
 
@@ -89,55 +89,55 @@ for f in sorted(src.glob("*.png")):
 PY
 fi
 
-# Bo anh SolarShift (4 mua x 8 khung gio) neu da tai ve.
+# SolarShift set (4 seasons x 8 times of day) if it has been fetched.
 SS_SRC="${SS_SRC:-$ROOT/build/solarshift-src}"
 if [ -d "$SS_SRC/spring" ]; then
-    echo "==> Chuyen anh SolarShift sang JPEG"
+    echo "==> Converting SolarShift images to JPEG"
     "$ROOT/.venv/bin/python" "$ROOT/packaging/prepare-solarshift.py" \
         "$SS_SRC" "$BUILD/usr/share/$PKG/wallpapers"
     SS_INCLUDED=1
 else
-    echo "==> Khong thay $SS_SRC, bo qua anh theo mua"
-    echo "    (tai bang ./packaging/fetch-solarshift.sh)"
+    echo "==> $SS_SRC not found, skipping seasonal images"
+    echo "    (fetch them with ./packaging/fetch-solarshift.sh)"
     SS_INCLUDED=0
 fi
 
-# ---- config he thong (conffile) ----------------------------------------
+# ---- system config (conffile) ------------------------------------------
 cat > "$BUILD/etc/xdg/$PKG/config.toml" <<'EOF'
-# Config he thong cho weather-background.
-# Ghi de rieng cho tung user tai ~/.config/weather-background/config.toml
+# System-wide config for weather-background.
+# Per-user override: ~/.config/weather-background/config.toml
 
 [location]
-# Mac dinh: Ha Noi
+# Default: Hanoi
 latitude  = 21.0278
 longitude = 105.8342
 
 [display]
-# Bo trong de tu dong do theo thu tu:
+# Leave unset to auto-detect, in this order:
 #   ~/.local/share/weather-background/wallpapers
-#   /usr/share/weather-background/wallpapers   (bo gradient di kem goi)
+#   /usr/share/weather-background/wallpapers   (the set shipped with the package)
 # wallpapers = "~/.local/share/weather-background/wallpapers"
 
 # auto | gnome | kde | swaybg | feh | none
 setter = "auto"
 
 # auto | off | spring | summer | autumn | winter
-# auto = suy ra tu thang va ban cau (theo latitude o tren).
-# off  = bo qua thu muc mua, dung anh o ngay thu muc goc.
+# auto = derived from the month and hemisphere (using latitude above).
+# off  = ignore season folders, use images in the root folder.
 season = "auto"
 
-# Do phan giai man hinh. Bo trong de giu nguyen kich thuoc anh goc.
+# Screen resolution. Leave unset to keep the source image size.
 resolution = "2560x1440"
 
 [weather]
-# false = bo qua thoi tiet, chi doi anh theo mat troi
+# false = ignore weather, follow the sun only
 enabled = true
 EOF
 
 # ---- systemd user units -------------------------------------------------
 cat > "$BUILD/usr/lib/systemd/user/weather-wallpaper.service" <<'EOF'
 [Unit]
-Description=Cap nhat hinh nen theo goc mat troi va thoi tiet
+Description=Update wallpaper from sun position and weather
 After=graphical-session.target
 Wants=network-online.target
 
@@ -148,12 +148,12 @@ EOF
 
 cat > "$BUILD/usr/lib/systemd/user/weather-wallpaper.timer" <<'EOF'
 [Unit]
-Description=Chay weather-wallpaper moi 15 phut
+Description=Run weather-wallpaper every 15 minutes
 
 [Timer]
 OnStartupSec=30s
 OnUnitActiveSec=15min
-# Chay bu neu may vua thuc day tu suspend
+# Catch up if the machine just resumed from suspend
 Persistent=true
 AccuracySec=1min
 
@@ -161,7 +161,7 @@ AccuracySec=1min
 WantedBy=timers.target
 EOF
 
-# ---- tai lieu -----------------------------------------------------------
+# ---- documentation ------------------------------------------------------
 install -m 0644 "$ROOT/README.md" "$BUILD/usr/share/doc/$PKG/README.md"
 
 cat > "$BUILD/usr/share/doc/$PKG/copyright" <<EOF
@@ -178,19 +178,19 @@ Files: usr/share/weather-background/wallpapers/spring/*
  usr/share/weather-background/wallpapers/winter/*
 Copyright: 2026 Samuel Lison
 License: MIT
-Comment: Bo anh SolarShift, https://github.com/TemujinCalidius/SolarShift
- 32 anh (4 mua x 8 khung gio), do AI sinh theo prompt trong repo goc.
- Duoc thu nho ve 2560x1440 va nen JPEG q88 khi dong goi.
+Comment: SolarShift wallpapers, https://github.com/TemujinCalidius/SolarShift
+ 32 images (4 seasons x 8 times of day), AI-generated from the prompts in
+ the upstream repo. Downscaled to 2560x1440 and encoded as JPEG q88 here.
 
 Files: usr/lib/weather-background/_vendor/astral/*
 Copyright: 2009-2022 Simon Kennedy <sffjunkie+code@gmail.com>
 License: Apache-2.0
-Comment: astral $ASTRAL_VER duoc nhung vi python3-astral cua Ubuntu 22.04 la
- ban 1.6.1 voi API khong tuong thich.
- Toan van giay phep: /usr/share/common-licenses/Apache-2.0
+Comment: astral $ASTRAL_VER is vendored because Ubuntu 22.04 ships
+ python3-astral 1.6.1, whose API is incompatible.
+ Full licence text: /usr/share/common-licenses/Apache-2.0
 EOF
 
-printf '%s (%s) unstable; urgency=medium\n\n  * Dong goi .deb dau tien.\n\n -- Nguyen Minh Ngoc <ngocnm95.backend@cdtgames.com>  %s\n' \
+printf '%s (%s) unstable; urgency=medium\n\n  * Initial .deb packaging.\n\n -- Nguyen Minh Ngoc <ngocnm95.backend@cdtgames.com>  %s\n' \
     "$PKG" "$VERSION" "$(date -R)" \
     | gzip -9n > "$BUILD/usr/share/doc/$PKG/changelog.Debian.gz"
 chmod 0644 "$BUILD/usr/share/doc/$PKG/changelog.Debian.gz"
@@ -210,19 +210,19 @@ Recommends: libglib2.0-bin
 Suggests: feh, swaybg
 Installed-Size: $INSTALLED_KB
 Maintainer: Nguyen Minh Ngoc <ngocnm95.backend@cdtgames.com>
-Description: Hinh nen dong theo goc mat troi va thoi tiet thuc te
- Chon anh nen theo goc mat troi that tai toa do cua ban (night / dawn /
- day / dusk), roi phu hieu ung theo thoi tiet lay tu Open-Meteo bang
- Pillow luc chay. Chi can 4 anh goc thay vi 20+ anh.
+Description: Dynamic wallpaper driven by sun position and real weather
+ Picks a wallpaper from the real solar elevation at your coordinates across
+ eight times of day, then layers weather effects fetched from Open-Meteo on
+ top of it with Pillow at run time.
  .
- Ho tro GNOME, KDE Plasma, sway va feh. Chay dinh ky qua systemd user
- timer, mac dinh 15 phut mot lan.
+ Supports GNOME, KDE Plasma, sway and feh. Runs on a systemd user timer,
+ every 15 minutes by default.
  .
- Kem cua so cai dat GTK (weather-background-settings) de chinh toa do,
- do phan giai va chon anh nen that tu Wikimedia Commons theo chu de.
+ Ships a GTK settings window (weather-background-settings) for coordinates,
+ resolution, seasonal sets, and browsing photos from Wikimedia Commons.
  .
- Anh mac dinh gom 32 anh SolarShift (4 mua x 8 khung gio) cong mot bo 8 anh
- dung bang code lam du phong khi tat che do theo mua.
+ Includes 32 SolarShift wallpapers (4 seasons x 8 times of day) plus a
+ procedurally generated set of 8 used when seasonal mode is off.
 EOF
 
 echo "/etc/xdg/$PKG/config.toml" > "$BUILD/DEBIAN/conffiles"
@@ -233,22 +233,22 @@ set -e
 if [ "$1" = configure ]; then
     cat <<'MSG'
 
-weather-background da duoc cai.
+weather-background is installed.
 
-Bat cho user hien tai (KHONG chay bang sudo):
+Enable it for the current user (do NOT run this with sudo):
     systemctl --user daemon-reload
     systemctl --user enable --now weather-wallpaper.timer
 
-Chay thu ngay:
+Try it right away:
     weather-wallpaper --dry-run
 
-Chon anh nen that va chinh cau hinh:
+Pick wallpapers and change settings:
     weather-background-settings
-(hoac tim "Weather Background" trong danh sach ung dung)
+(or look for "Weather Background" in your application list)
 
-Config he thong: /etc/xdg/weather-background/config.toml
-Ghi de rieng:    ~/.config/weather-background/config.toml
-Anh nen rieng:   ~/.local/share/weather-background/wallpapers/
+System config:    /etc/xdg/weather-background/config.toml
+Per-user config:  ~/.config/weather-background/config.toml
+Your own images:  ~/.local/share/weather-background/wallpapers/
 
 MSG
 fi
@@ -266,7 +266,7 @@ exit 0
 EOF
 chmod 0755 "$BUILD/DEBIAN/postrm"
 
-# Chuan hoa quyen: thu muc 0755, file 0644, tru cac script thuc thi.
+# Normalise permissions: dirs 0755, files 0644, except executable scripts.
 find "$BUILD" -path "$BUILD/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
 find "$BUILD" -path "$BUILD/DEBIAN" -prune -o -type f -exec chmod 0644 {} +
 chmod 0755 "$BUILD"/usr/bin/*
