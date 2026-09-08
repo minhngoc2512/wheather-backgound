@@ -58,7 +58,7 @@ cat > "$BUILD/usr/share/applications/weather-background-settings.desktop" <<'EOF
 [Desktop Entry]
 Type=Application
 Name=Weather Background
-Comment=Chon anh nen va chinh cau hinh cho hinh nen dong
+Comment=Pick wallpapers and configure the dynamic background
 Exec=weather-background-settings
 Icon=preferences-desktop-wallpaper
 Terminal=false
@@ -89,6 +89,19 @@ for f in sorted(src.glob("*.png")):
 PY
 fi
 
+# Bo anh SolarShift (4 mua x 8 khung gio) neu da tai ve.
+SS_SRC="${SS_SRC:-$ROOT/build/solarshift-src}"
+if [ -d "$SS_SRC/spring" ]; then
+    echo "==> Chuyen anh SolarShift sang JPEG"
+    "$ROOT/.venv/bin/python" "$ROOT/packaging/prepare-solarshift.py" \
+        "$SS_SRC" "$BUILD/usr/share/$PKG/wallpapers"
+    SS_INCLUDED=1
+else
+    echo "==> Khong thay $SS_SRC, bo qua anh theo mua"
+    echo "    (tai bang ./packaging/fetch-solarshift.sh)"
+    SS_INCLUDED=0
+fi
+
 # ---- config he thong (conffile) ----------------------------------------
 cat > "$BUILD/etc/xdg/$PKG/config.toml" <<'EOF'
 # Config he thong cho weather-background.
@@ -107,6 +120,11 @@ longitude = 105.8342
 
 # auto | gnome | kde | swaybg | feh | none
 setter = "auto"
+
+# auto | off | spring | summer | autumn | winter
+# auto = suy ra tu thang va ban cau (theo latitude o tren).
+# off  = bo qua thu muc mua, dung anh o ngay thu muc goc.
+season = "auto"
 
 # Do phan giai man hinh. Bo trong de giu nguyen kich thuoc anh goc.
 resolution = "2560x1440"
@@ -154,6 +172,16 @@ Files: *
 Copyright: $(date +%Y) Nguyen Minh Ngoc <ngocnm95.backend@cdtgames.com>
 License: MIT
 
+Files: usr/share/weather-background/wallpapers/spring/*
+ usr/share/weather-background/wallpapers/summer/*
+ usr/share/weather-background/wallpapers/autumn/*
+ usr/share/weather-background/wallpapers/winter/*
+Copyright: 2026 Samuel Lison
+License: MIT
+Comment: Bo anh SolarShift, https://github.com/TemujinCalidius/SolarShift
+ 32 anh (4 mua x 8 khung gio), do AI sinh theo prompt trong repo goc.
+ Duoc thu nho ve 2560x1440 va nen JPEG q88 khi dong goi.
+
 Files: usr/lib/weather-background/_vendor/astral/*
 Copyright: 2009-2022 Simon Kennedy <sffjunkie+code@gmail.com>
 License: Apache-2.0
@@ -192,6 +220,9 @@ Description: Hinh nen dong theo goc mat troi va thoi tiet thuc te
  .
  Kem cua so cai dat GTK (weather-background-settings) de chinh toa do,
  do phan giai va chon anh nen that tu Wikimedia Commons theo chu de.
+ .
+ Anh mac dinh gom 32 anh SolarShift (4 mua x 8 khung gio) cong mot bo 8 anh
+ dung bang code lam du phong khi tat che do theo mua.
 EOF
 
 echo "/etc/xdg/$PKG/config.toml" > "$BUILD/DEBIAN/conffiles"

@@ -37,7 +37,7 @@ if _VENDOR.is_dir():
     sys.path.insert(0, str(_VENDOR))
 
 from astral import Observer
-from astral.sun import elevation
+from astral.sun import elevation, noon
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter
 
 XDG_CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
@@ -83,10 +83,28 @@ def writable_wallpapers(preferred: Path) -> Path:
     return WALLPAPER_CANDIDATES[0]
 
 
+# Ten dung de do xem mot thu muc co anh nen hay khong. Gom ca "day" cua bo 4
+# anh cu, vi thu muc do van dung duoc qua PHASE_ALIASES.
+_PROBE_NAMES = ("midday", "day", "night", "dawn", "dusk")
+
+
+def has_bases(folder: Path) -> bool:
+    if not folder.is_dir():
+        return False
+    if any(any(folder.glob(f"{n}.*")) for n in _PROBE_NAMES):
+        return True
+    # Bo anh chia theo mua thi thu muc goc rong, anh nam trong <mua>/.
+    return any(
+        any(any((folder / season).glob(f"{n}.*")) for n in _PROBE_NAMES)
+        for season in SEASONS
+        if (folder / season).is_dir()
+    )
+
+
 def default_wallpapers() -> Path:
     """Thu muc anh nen khi config khong chi dinh."""
     for cand in WALLPAPER_CANDIDATES:
-        if cand.is_dir() and any(cand.glob("day.*")):
+        if has_bases(cand):
             return cand
     # Chua co gi: tro toi cho ghi duoc de --generate-bases hoat dong.
     return WALLPAPER_CANDIDATES[0]
@@ -106,6 +124,7 @@ class Config:
     setter: str          # auto | gnome | kde | swaybg | feh | none
     resolution: tuple[int, int] | None
     weather: bool
+    season: str          # auto | off | spring | summer | autumn | winter
 
 
 def load_config(path: Path) -> Config:
@@ -132,6 +151,7 @@ def load_config(path: Path) -> Config:
         setter=disp.get("setter", "auto"),
         resolution=res,
         weather=bool(raw.get("weather", {}).get("enabled", True)),
+        season=str(disp.get("season", "auto")).lower(),
     )
 
 
@@ -139,31 +159,98 @@ def load_config(path: Path) -> Config:
 # mat troi -> khung thoi gian
 # --------------------------------------------------------------------------
 
-PHASES = ("night", "dawn", "day", "dusk")
+# Thu tu theo dong thoi gian trong ngay, bat dau tu dem.
+PHASES = ("night", "dawn", "morning", "midday", "afternoon",
+          "golden_hour", "dusk", "twilight")
+
+# Khi thieu anh cho mot khung gio, lui ve ten thay the. Nho vay bo 4 anh cu
+# (night / dawn / day / dusk) van chay duoc voi 8 nac moi.
+PHASE_ALIASES = {
+    "night":       ("night",),
+    "dawn":        ("dawn",),
+    "morning":     ("morning", "day", "midday"),
+    "midday":      ("midday", "day"),
+    "afternoon":   ("afternoon", "day", "midday"),
+    "golden_hour": ("golden_hour", "dusk"),
+    "dusk":        ("dusk",),
+    "twilight":    ("twilight", "night", "dusk"),
+}
+
+# Nguong goc mat troi (do). Chieu co nhieu nac hon sang vi mat troi lan dep
+# hon va bo anh cung chia nho phia do (golden_hour / dusk / twilight).
+#
+# Nguong tren khong the co dinh: o vi do cao mua dong mat troi khong bao gio
+# len toi 28 do, nen "midday" se khong bao gio xay ra. Vi vay no duoc neo theo
+# do cao luc chinh ngo cua chinh ngay do.
+MIDDAY_CAP = 28.0        # tran cho vung nhiet doi, noi mat troi len rat cao
+MIDDAY_SHARE = 0.80      # midday bat dau tu 80% do cao chinh ngo
+GOLDEN_CAP = 12.0
+GOLDEN_SHARE = 0.60
+
+
+def _monotonic(bands):
+    """Ep nguong khong giam dan.
+
+    Khi ngay qua ngan (mua dong vung cuc) cac nguong co the dao thu tu; kep lai
+    se lam dai tuong ung rong di - dung y nghia: hom do khong co khung gio do.
+    """
+    out, prev = [], -90.0
+    for limit, name in bands:
+        if limit is None:
+            out.append((None, name))
+            continue
+        limit = max(limit, prev)
+        prev = limit
+        out.append((limit, name))
+    return tuple(out)
+
+
+def _bands(noon_elev: float):
+    top = min(MIDDAY_CAP, MIDDAY_SHARE * noon_elev)
+    gold = min(GOLDEN_CAP, top * GOLDEN_SHARE)
+    rising = ((-6.0, "night"), (8.0, "dawn"), (top, "morning"), (None, "midday"))
+    falling = ((-9.0, "night"), (-3.0, "twilight"), (3.0, "dusk"),
+               (gold, "golden_hour"), (top, "afternoon"), (None, "midday"))
+    return _monotonic(rising), _monotonic(falling)
+
+SEASONS = ("spring", "summer", "autumn", "winter")
+
+# Thang 1..12 -> mua o bac ban cau.
+_NORTH_SEASON = ("winter", "winter", "spring", "spring", "spring", "summer",
+                 "summer", "summer", "autumn", "autumn", "autumn", "winter")
+_FLIP = {"spring": "autumn", "summer": "winter", "autumn": "spring", "winter": "summer"}
+
+
+def current_season(lat: float, when: datetime | None = None) -> str:
+    when = when or datetime.now(timezone.utc)
+    north = _NORTH_SEASON[when.month - 1]
+    return north if lat >= 0 else _FLIP[north]
+
+
+def _band(elev: float, bands) -> str:
+    for limit, name in bands:
+        if limit is None or elev < limit:
+            return name
+    return bands[-1][1]
 
 
 def solar_phase(lat: float, lon: float, when: datetime | None = None) -> tuple[str, float]:
     """Tra ve (phase, elevation_degrees).
 
-    night : mat troi duoi -6 do  (da qua chang vang)
-    dawn  : -6 .. +12 do va dang len
-    day   : tren +12 do
-    dusk  : -6 .. +12 do va dang xuong
+    Dang len hay dang xuong duoc xac dinh bang cach so voi 10 phut truoc.
+    Cach nay khong phu thuoc mui gio, khac voi viec doi chieu solar noon theo
+    ngay UTC (se sai o cac mui gio lech xa nhu UTC+7).
     """
     when = when or datetime.now(timezone.utc)
     obs = Observer(latitude=lat, longitude=lon)
     elev = elevation(obs, when)
-
-    if elev < -6:
-        return "night", elev
-    if elev > 12:
-        return "day", elev
-
-    # Dang len hay dang xuong? So sanh voi 10 phut truoc.
-    # Cach nay khong phu thuoc mui gio, khac voi viec doi chieu solar noon
-    # theo ngay UTC (se sai o cac mui gio lech xa nhu UTC+7).
     earlier = elevation(obs, when - timedelta(minutes=10))
-    return ("dawn" if elev > earlier else "dusk"), elev
+    try:
+        noon_elev = elevation(obs, noon(obs, when.date()))
+    except Exception:                      # vung cuc: astral co the khong tinh duoc
+        noon_elev = MIDDAY_CAP
+    rising, falling = _bands(noon_elev)
+    return _band(elev, rising if elev > earlier else falling), elev
 
 
 # --------------------------------------------------------------------------
@@ -256,14 +343,22 @@ def render_key(base: Path, resolution) -> str:
     return f"{base}|{st.st_mtime_ns}|{st.st_size}|{res}"
 
 
-def find_base(folder: Path, phase: str) -> Path:
-    for ext in (".jpg", ".jpeg", ".png", ".webp"):
-        cand = folder / f"{phase}{ext}"
-        if cand.exists():
-            return cand
+def find_base(folder: Path, phase: str, season: str | None = None) -> Path:
+    """Tim anh goc cho mot khung gio.
+
+    Uu tien thu muc mua (wallpapers/<mua>/<phase>.jpg) roi moi den thu muc goc,
+    va trong moi thu muc thi thu lan luot cac ten thay the trong PHASE_ALIASES.
+    """
+    roots = [folder / season, folder] if season else [folder]
+    for root in roots:
+        for name in PHASE_ALIASES.get(phase, (phase,)):
+            for ext in (".jpg", ".jpeg", ".png", ".webp"):
+                cand = root / f"{name}{ext}"
+                if cand.exists():
+                    return cand
     raise FileNotFoundError(
         f"Khong tim thay anh nen '{phase}.*' trong {folder}. "
-        f"Chay `{Path(sys.argv[0]).name} --generate-bases` de tao anh gradient tam."
+        "Chay voi --generate-bases de tao bo anh mac dinh."
     )
 
 
@@ -289,17 +384,41 @@ SCENES = {
         "stars": 90,
         "ridge": (26, 21, 42),
     },
-    "day": {
+    "morning": {
+        "sky":   [(22, 74, 168), (64, 124, 206), (140, 180, 226), (226, 214, 196)],
+        "glow":  ((0.42, 0.38), 0.30, (255, 232, 186), 0.70),
+        "stars": 0,
+        "ridge": (44, 66, 100),
+    },
+    "midday": {
         "sky":   [(26, 90, 184), (70, 136, 218), (138, 188, 236), (210, 234, 248)],
-        "glow":  ((0.68, 0.16), 0.30, (255, 246, 214), 0.60),
+        "glow":  ((0.58, 0.14), 0.30, (255, 246, 214), 0.60),
         "stars": 0,
         "ridge": (52, 74, 104),
     },
+    "afternoon": {
+        "sky":   [(30, 96, 180), (84, 142, 210), (164, 190, 220), (238, 222, 190)],
+        "glow":  ((0.70, 0.32), 0.31, (255, 238, 194), 0.68),
+        "stars": 0,
+        "ridge": (50, 66, 92),
+    },
+    "golden_hour": {
+        "sky":   [(36, 72, 146), (120, 116, 166), (226, 146, 92), (255, 204, 132)],
+        "glow":  ((0.78, 0.55), 0.35, (255, 190, 110), 0.90),
+        "stars": 0,
+        "ridge": (34, 28, 46),
+    },
     "dusk": {
         "sky":   [(14, 18, 54), (68, 42, 94), (172, 66, 86), (242, 142, 86)],
-        "glow":  ((0.72, 0.62), 0.32, (255, 158, 92), 0.85),
+        "glow":  ((0.82, 0.63), 0.32, (255, 158, 92), 0.85),
         "stars": 150,
         "ridge": (19, 14, 32),
+    },
+    "twilight": {
+        "sky":   [(8, 12, 40), (34, 32, 78), (86, 58, 110), (150, 92, 110)],
+        "glow":  ((0.80, 0.70), 0.28, (206, 126, 116), 0.60),
+        "stars": 300,
+        "ridge": (14, 12, 28),
     },
 }
 
@@ -542,6 +661,7 @@ def main() -> int:
     ap.add_argument("-c", "--config", help="duong dan config.toml (mac dinh: tu dong do)")
     ap.add_argument("--weather", help="ep buoc nhom thoi tiet (clear/cloudy/overcast/fog/rain/snow/storm)")
     ap.add_argument("--phase", choices=PHASES, help="ep buoc khung thoi gian")
+    ap.add_argument("--season", choices=(*SEASONS, "off"), help="ep buoc mua")
     ap.add_argument("--offline", action="store_true", help="khong goi API, dung cache")
     ap.add_argument("--dry-run", action="store_true", help="tinh toan va tao anh nhung khong doi hinh nen")
     ap.add_argument("--generate-bases", action="store_true", help="tao 4 anh gradient mac dinh roi thoat")
@@ -581,7 +701,16 @@ def main() -> int:
             print(f"Khong lay duoc thoi tiet ({exc}); dung gia tri cu.", file=sys.stderr)
             group = cached_weather()
 
-    base = find_base(cfg.wallpapers, phase)
+    if args.season:
+        season = None if args.season == "off" else args.season
+    elif cfg.season == "auto":
+        season = current_season(cfg.latitude)
+    elif cfg.season in SEASONS:
+        season = cfg.season
+    else:                       # "off" hoac gia tri la
+        season = None
+
+    base = find_base(cfg.wallpapers, phase, season)
 
     # doc state cu
     try:
@@ -613,7 +742,8 @@ def main() -> int:
     img.save(out, "JPEG", quality=92)
 
     elev_txt = "n/a" if args.phase else f"{elev:+.1f}\u00b0"
-    print(f"phase={phase}  elevation={elev_txt}  weather={group}  ->  {out}")
+    print(f"phase={phase}  elevation={elev_txt}  season={season or '-'}  "
+          f"weather={group}  ->  {out}")
 
     if not args.dry_run:
         set_wallpaper(out, cfg.setter)

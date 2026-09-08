@@ -131,6 +131,16 @@ lọc phía client: bỏ ảnh hẹp hơn 1920px, tỉ lệ ngoài khoảng 1.45
 
 ## Ảnh nền mặc định
 
+Gói kèm **32 ảnh [SolarShift](https://github.com/TemujinCalidius/SolarShift)**
+(4 mùa × 8 khung giờ) — cùng một ngôi làng trung cổ vẽ theo phong cách low-poly,
+do AI sinh, giấy phép MIT © 2026 Samuel Lison. Ảnh gốc 5504×3072 PNG (~18 MB mỗi
+ảnh, 570 MB cả bộ) được thu về 2560×1440 JPEG q88 khi đóng gói, còn ~21 MB.
+
+Tải ảnh gốc bằng `./packaging/fetch-solarshift.sh`, script build tự chuyển đổi. Không
+có thư mục đó thì gói vẫn build được, chỉ thiếu phần ảnh theo mùa.
+
+## Ảnh nền dựng bằng code
+
 `--generate-bases` dựng cảnh núi bằng Pillow, không phải gradient phẳng:
 
 - bầu trời nội suy trong **không gian tuyến tính** (trộn thẳng trong sRGB sẽ ra màu xám đục);
@@ -145,17 +155,48 @@ chân trời. Mất khoảng 1,2 giây mỗi ảnh ở 2560×1440.
 
 Muốn dùng ảnh chụp thật thì cứ ghi đè 4 file trong thư mục ảnh nền như mô tả ở trên.
 
-## Ngưỡng phân chia khung giờ
+## Khung giờ và mùa
 
-| Khung | Điều kiện góc mặt trời |
-|---|---|
-| `night` | dưới −6° |
-| `dawn` | −6° … +12°, đang lên |
-| `day` | trên +12° |
-| `dusk` | −6° … +12°, đang xuống |
+8 khung giờ, chọn theo góc mặt trời thật và chiều lên/xuống:
 
-Đổi ngưỡng trong hàm `solar_phase()`. Ở Hà Nội, `dawn`/`dusk` kéo dài khoảng
-50–60 phút mỗi lần.
+| Khung | Chiều | Điều kiện |
+|---|---|---|
+| `night` | — | dưới −6° (lên) / dưới −9° (xuống) |
+| `dawn` | lên | −6° … 8° |
+| `morning` | lên | 8° … *top* |
+| `midday` | — | trên *top* |
+| `afternoon` | xuống | 12° … *top* |
+| `golden_hour` | xuống | 3° … 12° |
+| `dusk` | xuống | −3° … 3° |
+| `twilight` | xuống | −9° … −3° |
+
+`top` **không cố định**. Ở vĩ độ cao mùa đông mặt trời không bao giờ lên tới
+28°, nên ngưỡng tuyệt đối sẽ khiến `midday` không bao giờ xảy ra. Thay vào đó
+`top = min(28°, 80% × độ cao lúc chính ngọ)` của chính ngày hôm đó. Vùng nhiệt
+đới chạm trần 28° nên hành vi không đổi; London tháng 12 thì `top` tụt xuống
+theo và `midday` vẫn có.
+
+Các ngưỡng được ép không giảm dần, nên ngày quá ngắn ở vùng cực chỉ làm dải
+tương ứng rỗng đi — đúng nghĩa: hôm đó không có khung giờ đó. Đo thử ở Tromsø
+(70°N): tháng 6 không có `night`/`dusk`/`twilight` (mặt trời không lặn), tháng
+12 không có `midday` (mặt trời không mọc).
+
+Khung ngắn nhất (`dusk`, `twilight` ở vùng nhiệt đới) kéo dài 27–28 phút, dài
+hơn chu kỳ timer 15 phút nên không bị bỏ sót.
+
+Sửa `RISING_BANDS` / `FALLING_BANDS` và `MIDDAY_CAP` trong `wallpaper.py` để đổi.
+
+### Mùa
+
+Đặt `season` trong `[display]`: `auto` (suy từ tháng và bán cầu theo `latitude`),
+`off`, hoặc tên mùa cụ thể. Ảnh tìm ở `wallpapers/<mùa>/<khung>.jpg` trước, không
+có thì lui về `wallpapers/<khung>.jpg`.
+
+### Tương thích ngược
+
+Bộ 4 ảnh cũ (`night`/`dawn`/`day`/`dusk`) vẫn chạy. `PHASE_ALIASES` ánh xạ
+`morning`/`midday`/`afternoon` → `day`, `golden_hour` → `dusk`, `twilight` →
+`night`. Không cần đổi gì.
 
 ## Chỉnh hiệu ứng thời tiết
 

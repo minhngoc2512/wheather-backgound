@@ -18,19 +18,23 @@ UA = "weather-background/1.2 (dynamic wallpaper; contact via local install)"
 
 # Chu de -> tu khoa tim kiem. Nguoi dung chon trong UI.
 THEMES = {
-    "mountain_lake": ("Nui va ho", "mountain lake landscape"),
-    "sea":           ("Bien va bo bien", "sea coast seascape"),
-    "forest":        ("Rung va cay", "forest trees woodland"),
-    "desert":        ("Sa mac va doi cat", "desert sand dunes"),
+    "mountain_lake": ("Mountains & lakes", "mountain lake landscape"),
+    "sea":           ("Sea & coast", "sea coast seascape"),
+    "forest":        ("Forest & trees", "forest trees woodland"),
+    "desert":        ("Desert & dunes", "desert sand dunes"),
 }
 DEFAULT_THEME = "mountain_lake"
 
 # Tu khoa them theo tung khung gio.
 PHASE_TERMS = {
-    "night": "night stars",
-    "dawn":  "sunrise dawn",
-    "day":   "daylight",
-    "dusk":  "sunset dusk",
+    "night":       "night stars",
+    "dawn":        "sunrise dawn",
+    "morning":     "morning light",
+    "midday":      "daylight noon",
+    "afternoon":   "afternoon light",
+    "golden_hour": "golden hour warm light",
+    "dusk":        "sunset dusk",
+    "twilight":    "twilight blue hour",
 }
 
 MIN_WIDTH = 1600
@@ -80,7 +84,7 @@ def _call(params: dict, timeout: int, tries: int = 3) -> dict:
             if exc.code not in (429, 500, 502, 503, 504) or attempt == tries - 1:
                 if exc.code == 429:
                     raise RateLimited(
-                        "Wikimedia dang gioi han truy cap. Doi khoang mot phut roi thu lai."
+                        "Wikimedia is rate-limiting requests. Wait about a minute and retry."
                     ) from exc
                 raise
             # Ton trong Retry-After neu server co gui.
