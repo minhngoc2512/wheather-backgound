@@ -1,0 +1,8 @@
+.venv
+__pycache__
+
+# San pham build, tai tao bang ./packaging/build-deb.sh
+build/
+
+# Anh nen sinh tu code (13MB), tai tao bang: wallpaper.py --generate-bases
+wallpapers/

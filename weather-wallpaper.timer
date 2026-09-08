@@ -1,0 +1,12 @@
+[Unit]
+Description=Chay weather-wallpaper moi 15 phut
+
+[Timer]
+OnStartupSec=30s
+OnUnitActiveSec=15min
+# Chay bu neu may vua thuc day tu suspend
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
